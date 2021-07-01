@@ -10,9 +10,17 @@ import com.google.gson.Gson;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+import fi.iki.elonen.NanoHTTPD;
+
 public class BroadcastReceiverJavaClass implements Runnable
 {
     static native void OnBroadcastCatched(long pObject, String str_out);
+    static native void OnHttpServerServ(long pObject, String str_url);;
+
 
     private long m_V8Object; // 1C application context
     private Activity m_Activity; // custom activity of 1C:Enterprise
@@ -29,6 +37,9 @@ public class BroadcastReceiverJavaClass implements Runnable
     {
         m_Activity.runOnUiThread(this);
     }
+
+    MyHTTPD http_server;
+    int HTT_PORT = 8765;
 
     public void start(String in_bk_filters)
     {
@@ -113,13 +124,111 @@ public class BroadcastReceiverJavaClass implements Runnable
         }
     }
 
-
     public void stop()
     {
         if (m_Receiver != null)
         {
             m_Activity.unregisterReceiver(m_Receiver);
             m_Receiver = null;
+        }
+    }
+
+
+    //================ HTTP
+    public String StartHTTP(int in_port)
+    {
+        HTT_PORT = in_port;
+        if (http_server!=null)
+        {
+            try
+            {
+                http_server.closeAllConnections();
+                http_server.stop();
+                http_server = null;
+            }
+            catch(Exception e)
+            {
+                return e.getMessage();
+            }
+        }
+
+        try
+        {
+            http_server = new MyHTTPD();
+        }
+        catch(IOException e)
+        {
+            return e.getMessage();
+        }
+
+        try {
+            http_server.start();
+        } catch (Exception e) {
+            return e.getMessage();
+        }
+        return "ok_en";
+
+    }
+
+    public String StopHTTP()
+    {
+
+        if (http_server!=null)
+        {
+            try
+            {
+                http_server.closeAllConnections();
+                http_server.stop();
+                http_server = null;
+            }
+            catch(Exception e)
+            {
+                return e.getMessage();
+            }
+        }
+
+        return "ok_en";
+    }
+
+
+    public class MyHTTPD extends NanoHTTPD {
+        //public static final int PORT = 8765;
+
+        public MyHTTPD() throws IOException {
+            super(HTT_PORT);
+        }
+
+        @Override
+        public Response serve(IHTTPSession session) {
+
+            Map<String, String> files = new HashMap<String, String>();
+            Method method = session.getMethod();
+
+            if (Method.PUT.equals(method) || Method.POST.equals(method)) {
+                try {
+                    session.parseBody(files);
+                } catch (IOException ioe) {
+                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "SERVER INTERNAL ERROR: IOException: " + ioe.getMessage());
+                } catch (ResponseException re) {
+                    return newFixedLengthResponse(re.getStatus(), MIME_PLAINTEXT, re.getMessage());
+                }
+            }
+
+            for (Map.Entry<String, String> entry: files.entrySet())
+            {
+                OnHttpServerServ(m_V8Object, entry.getValue());
+                String response = "ok";
+                return newFixedLengthResponse(response);
+            }
+
+           /* // get the POST body
+            String postBody = session.getQueryParameterString();
+            // or you can access the POST request's parameters
+            String postParameter = session.getParms().get("parameter");
+
+            return new Response(postBody); // Or postParameter.*/
+
+            return  null;
         }
     }
 
